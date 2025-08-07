@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Village Essentials Map</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; }
+    #map { height: 100vh; }
+    #searchBox {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+    .checkboxes {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="searchBox">
+    <input type="text" id="village" placeholder="Enter village name (France or Spain)" />
+    <button onclick="searchVillage()">Search</button>
+    <div class="checkboxes">
+      <label><input type="checkbox" checked onchange="toggleLayer('toilets')"> Toilets</label>
+      <label><input type="checkbox" checked onchange="toggleLayer('drinking_water')"> Water</label>
+      <label><input type="checkbox" checked onchange="toggleLayer('supermarket')"> Supermarkets</label>
+      <label><input type="checkbox" checked onchange="toggleLayer('bakery')"> Bakeries</label>
+      <label><input type="checkbox" checked onchange="toggleLayer('sandwich')"> Sandwich Shops</label>
+      <label><input type="checkbox" checked onchange="toggleLayer('fuel')"> Petrol Stations</label>
+      <label><input type="checkbox" id="openNow" onchange="updateAllLayers()"> Open now</label>
+    </div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opening_hours@3.10.0/opening_hours.min.js"></script>
+  <script>
+    const map = L.map('map').setView([43.0, 2.5], 6);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const icons = {
+      toilets: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/481/481663.png', iconSize: [25, 25] }),
+      drinking_water: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/727/727803.png', iconSize: [25, 25] }),
+      supermarket: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/3075/3075977.png', iconSize: [25, 25] }),
+      bakery: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/2909/2909822.png', iconSize: [25, 25] }),
+      sandwich: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/1046/1046784.png', iconSize: [25, 25] }),
+      fuel: L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/32/2331/2331970.png', iconSize: [25, 25] })
+    };
+
+    const categoryLayers = {
+      toilets: L.layerGroup().addTo(map),
+      drinking_water: L.layerGroup().addTo(map),
+      supermarket: L.layerGroup().addTo(map),
+      bakery: L.layerGroup().addTo(map),
+      sandwich: L.layerGroup().addTo(map),
+      fuel: L.layerGroup().addTo(map)
+    };
+
+    function isOpenNow(openingHoursStr) {
+      try {
+        const oh = new opening_hours(openingHoursStr);
+        return oh.getState();
+      } catch {
+        return true;
+      }
+    }
+
+    function addOverpassData(key, query) {
+      fetch(`https://overpass-api.de/api/interpreter?data=[out:json];node[${query}](around:5000,${map.getCenter().lat},${map.getCenter().lng});out;`)
+        .then(res => res.json())
+        .then(data => {
+          categoryLayers[key].clearLayers();
+          const openNowChecked = document.getElementById("openNow").checked;
+
+          data.elements.forEach(elem => {
+            if (elem.lat && elem.lon) {
+              const oh = elem.tags.opening_hours;
+              if (openNowChecked && oh && !isOpenNow(oh)) return;
+
+              let popupContent = `<strong>${elem.tags.name || key}</strong><br>${key}`;
+              if (oh) popupContent += `<br><em>Hours: ${oh}</em>`;
+
+              L.marker([elem.lat, elem.lon], { icon: icons[key] })
+                .bindPopup(popupContent)
+                .addTo(categoryLayers[key]);
+            }
+          });
+        });
+    }
+
+    function searchVillage() {
+      const village = document.getElementById('village').value;
+      if (!village) return;
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${village}`)
+        .then(res => res.json())
+        .then(results => {
+          if (results.length > 0) {
+            const { lat, lon } = results[0];
+            map.setView([lat, lon], 15);
+            updateAllLayers();
+          } else {
+            alert("Village not found.");
+          }
+        });
+    }
+
+    function updateAllLayers() {
+      addOverpassData('toilets', 'amenity=toilets');
+      addOverpassData('drinking_water', 'amenity=drinking_water');
+      addOverpassData('supermarket', 'shop=supermarket');
+      addOverpassData('bakery', 'shop=bakery');
+      addOverpassData('sandwich', 'cuisine=sandwich');
+      addOverpassData('fuel', 'amenity=fuel');
+    }
+
+    function toggleLayer(key) {
+      const isChecked = document.querySelector(`input[onchange*="${key}"]`).checked;
+      if (isChecked) {
+        categoryLayers[key].addTo(map);
+      } else {
+        map.removeLayer(categoryLayers[key]);
+      }
+    }
+  </script>
+</body>
+</html>
